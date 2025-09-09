@@ -19,7 +19,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 # 查找 Qt 模块
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Network)
 
 # 添加可执行文件
 add_executable(${PROJECT_NAME}
@@ -37,7 +37,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::SerialPort
+    Qt6::Network
 )
+
+# 对于MSVC编译器，添加必要的编译器标志
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /Zc:__cplusplus)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
 
 # # 设置可执行文件图标（Windows）
 # if(WIN32)
