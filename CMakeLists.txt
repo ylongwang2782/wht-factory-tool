@@ -21,6 +21,9 @@ set(CMAKE_AUTOUIC ON)
 # 查找 Qt 模块
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Network)
 
+# 添加protocol子目录
+add_subdirectory(protocol)
+
 # 添加可执行文件
 add_executable(${PROJECT_NAME}
     main.cpp
@@ -31,13 +34,14 @@ add_executable(${PROJECT_NAME}
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE APP_VERSION="${PROJECT_VERSION}")
 
-# 链接 Qt 库
+# 链接 Qt 库和protocol库
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
     Qt6::SerialPort
     Qt6::Network
+    WhtsProtocol
 )
 
 # 对于MSVC编译器，添加必要的编译器标志
