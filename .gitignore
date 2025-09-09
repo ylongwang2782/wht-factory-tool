@@ -1,0 +1,7 @@
+/build-wht-factory-tool-Desktop_Qt_5_7_1_MSVC2015_64bit-Debug
+/build-wht-factory-tool-Desktop_Qt_5_7_1_MSVC2015_64bit-Profile
+/build-wht-factory-tool-Desktop_Qt_5_7_1_MSVC2015_64bit-Release
+/wht-factory-tool/wht-factory-tool.pro.user
+build/
+.cache/
+upgrade_log_*.txt
