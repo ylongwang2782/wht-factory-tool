@@ -313,6 +313,122 @@
         </item>
        </layout>
       </widget>
+      <widget class="QWidget" name="tabDataView">
+       <attribute name="title">
+        <string>数据查看</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_data_view">
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayout_data_control">
+          <item>
+           <widget class="QPushButton" name="pushButtonStart">
+            <property name="text">
+             <string>启动</string>
+            </property>
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="pushButtonStop">
+            <property name="text">
+             <string>停止</string>
+            </property>
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="pushButtonClearData">
+            <property name="text">
+             <string>清除</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer_data_control">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QTableWidget" name="tableWidgetDataView">
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <column>
+           <property name="text">
+            <string>Slave ID</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>CS</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>SL</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>EUB</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>BLA</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>PS</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>EL1</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>EL2</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>A1</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>A2</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>导通数据</string>
+           </property>
+          </column>
+         </widget>
+        </item>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>

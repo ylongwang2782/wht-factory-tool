@@ -12,6 +12,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_pLogStream(nullptr)
     , m_pProtocolProcessor(nullptr)
     , m_pSettings(nullptr)
+    , m_bDataViewRunning(false)
 {
     ui->setupUi(this);
     InitializeUI();
@@ -67,6 +68,9 @@ void MainWindow::InitializeUI()
     connect(ui->pushButtonClearLog, &QPushButton::clicked, this, &MainWindow::OnClearLogClicked);
     connect(ui->pushButtonQueryDevices, &QPushButton::clicked, this, &MainWindow::OnQueryDevicesClicked);
     connect(ui->pushButtonAddSlaveConfig, &QPushButton::clicked, this, &MainWindow::OnAddSlaveConfigClicked);
+    connect(ui->pushButtonStart, &QPushButton::clicked, this, &MainWindow::OnStartClicked);
+    connect(ui->pushButtonStop, &QPushButton::clicked, this, &MainWindow::OnStopClicked);
+    connect(ui->pushButtonClearData, &QPushButton::clicked, this, &MainWindow::OnClearDataClicked);
     
     // 设置发送框回车键发送
     connect(ui->lineEditSendData, &QLineEdit::returnPressed, this, &MainWindow::OnSendClicked);
@@ -82,6 +86,19 @@ void MainWindow::InitializeUI()
     ui->tableWidgetSlaveConfigs->setColumnWidth(0, 150); // 配置名称
     ui->tableWidgetSlaveConfigs->setColumnWidth(1, 200); // 配置信息
     ui->tableWidgetSlaveConfigs->setColumnWidth(2, 250); // 操作（增加宽度以容纳4个按钮）
+    
+    // 初始化数据查看表格
+    ui->tableWidgetDataView->setColumnWidth(0, 80);  // Slave ID
+    ui->tableWidgetDataView->setColumnWidth(1, 40);  // CS
+    ui->tableWidgetDataView->setColumnWidth(2, 40);  // SL
+    ui->tableWidgetDataView->setColumnWidth(3, 40);  // EUB
+    ui->tableWidgetDataView->setColumnWidth(4, 40);  // BLA
+    ui->tableWidgetDataView->setColumnWidth(5, 40);  // PS
+    ui->tableWidgetDataView->setColumnWidth(6, 40);  // EL1
+    ui->tableWidgetDataView->setColumnWidth(7, 40);  // EL2
+    ui->tableWidgetDataView->setColumnWidth(8, 40);  // A1
+    ui->tableWidgetDataView->setColumnWidth(9, 40);  // A2
+    ui->tableWidgetDataView->setColumnWidth(10, 200); // 导通数据
     
     // 设置窗口大小
     resize(1000, 700);
@@ -280,6 +297,8 @@ void MainWindow::UpdateConnectionState(bool connected)
     ui->pushButtonDisconnect->setEnabled(connected);
     ui->pushButtonSend->setEnabled(connected);
     ui->pushButtonQueryDevices->setEnabled(connected);
+    ui->pushButtonStart->setEnabled(connected);
+    ui->pushButtonStop->setEnabled(connected && m_bDataViewRunning);
     
     // 更新状态栏
     if (connected) {
@@ -350,6 +369,21 @@ void MainWindow::ProcessProtocolMessage(const std::vector<uint8_t> &data)
                 auto slaveConfigResponse = dynamic_cast<WhtsProtocol::Master2Backend::SlaveConfigResponseMessage*>(message.get());
                 if (slaveConfigResponse) {
                     HandleSlaveConfigResponse(*slaveConfigResponse);
+                }
+            }
+        }
+        
+        // 解析Slave2Backend消息
+        uint32_t slaveId;
+        WhtsProtocol::DeviceStatus deviceStatus;
+        std::unique_ptr<WhtsProtocol::Message> slave2BackendMessage;
+        if (m_pProtocolProcessor->parseSlave2BackendPacket(frame.payload, slaveId, deviceStatus, slave2BackendMessage)) {
+            // 检查消息类型
+            if (slave2BackendMessage->getMessageId() == static_cast<uint8_t>(WhtsProtocol::Slave2BackendMessageId::CONDUCTION_DATA_MSG)) {
+                // 转换为导通数据消息
+                auto conductionDataMessage = dynamic_cast<WhtsProtocol::Slave2Backend::ConductionDataMessage*>(slave2BackendMessage.get());
+                if (conductionDataMessage && m_bDataViewRunning) {
+                    HandleConductionDataMessage(slaveId, deviceStatus, *conductionDataMessage);
                 }
             }
         }
@@ -687,4 +721,159 @@ void MainWindow::OnCopySlaveConfigClicked()
         
         LogMessage(QString("复制从机配置: %1 -> %2").arg(m_slaveConfigs[row].name).arg(copiedConfig.name), "INFO");
     }
+}
+
+void MainWindow::OnStartClicked()
+{
+    if (!m_bConnected || !m_pUdpSocket) {
+        QMessageBox::warning(this, "警告", "请先连接UDP");
+        return;
+    }
+    
+    // 发送启动控制消息
+    SendCtrlMessage(1); // 1表示启动
+    m_bDataViewRunning = true;
+    
+    // 更新按钮状态
+    ui->pushButtonStart->setEnabled(false);
+    ui->pushButtonStop->setEnabled(true);
+    
+    LogMessage("发送启动控制消息", "INFO");
+}
+
+void MainWindow::OnStopClicked()
+{
+    if (!m_bConnected || !m_pUdpSocket) {
+        QMessageBox::warning(this, "警告", "请先连接UDP");
+        return;
+    }
+    
+    // 发送停止控制消息
+    SendCtrlMessage(0); // 0表示停止
+    m_bDataViewRunning = false;
+    
+    // 更新按钮状态
+    ui->pushButtonStart->setEnabled(true);
+    ui->pushButtonStop->setEnabled(false);
+    
+    LogMessage("发送停止控制消息", "INFO");
+}
+
+void MainWindow::SendCtrlMessage(uint8_t runningStatus)
+{
+    // 创建控制消息
+    WhtsProtocol::Backend2Master::CtrlMessage ctrlMsg;
+    ctrlMsg.runningStatus = runningStatus;
+    
+    // 使用协议处理器打包消息
+    auto packets = m_pProtocolProcessor->packBackend2MasterMessage(ctrlMsg);
+    
+    // 发送所有分片
+    for (const auto& packet : packets) {
+        QByteArray data(reinterpret_cast<const char*>(packet.data()), packet.size());
+        qint64 bytesWritten = m_pUdpSocket->writeDatagram(data, m_remoteAddress, m_remotePort);
+        
+        if (bytesWritten == -1) {
+            LogMessage(QString("发送控制消息失败: %1").arg(m_pUdpSocket->errorString()), "ERROR");
+            return;
+        } else {
+            LogMessage(QString("发送控制消息 (状态=%1) -> %2:%3 [%4] (%5 bytes)")
+                      .arg(runningStatus)
+                      .arg(m_remoteAddress.toString())
+                      .arg(m_remotePort)
+                      .arg(ByteArrayToHexString(data))
+                      .arg(bytesWritten), "SEND");
+        }
+    }
+}
+
+void MainWindow::HandleConductionDataMessage(uint32_t slaveId, const WhtsProtocol::DeviceStatus& deviceStatus, const WhtsProtocol::Slave2Backend::ConductionDataMessage& message)
+{
+    LogMessage(QString("收到导通数据消息 - 从机ID: 0x%1, 数据长度: %2")
+              .arg(slaveId, 8, 16, QChar('0')).toUpper()
+              .arg(message.conductionLength), "INFO");
+    
+    // 更新数据查看表格
+    UpdateDataViewTable(slaveId, deviceStatus, message);
+}
+
+void MainWindow::UpdateDataViewTable(uint32_t slaveId, const WhtsProtocol::DeviceStatus& deviceStatus, const WhtsProtocol::Slave2Backend::ConductionDataMessage& message)
+{
+    // 查找是否已存在该从机ID的行
+    int targetRow = -1;
+    for (int i = 0; i < ui->tableWidgetDataView->rowCount(); ++i) {
+        QTableWidgetItem* item = ui->tableWidgetDataView->item(i, 0);
+        if (item) {
+            bool ok;
+            uint32_t existingId = item->text().toUInt(&ok, 16);
+            if (ok && existingId == slaveId) {
+                targetRow = i;
+                break;
+            }
+        }
+    }
+    
+    // 如果没有找到，创建新行
+    if (targetRow == -1) {
+        targetRow = ui->tableWidgetDataView->rowCount();
+        ui->tableWidgetDataView->insertRow(targetRow);
+        
+        // 设置从机ID
+        ui->tableWidgetDataView->setItem(targetRow, 0, 
+            new QTableWidgetItem(QString("0x%1").arg(slaveId, 8, 16, QChar('0')).toUpper()));
+    }
+    
+    // 更新设备状态列（CS, SL, EUB, BLA, PS, EL1, EL2, A1, A2）
+    ui->tableWidgetDataView->setItem(targetRow, 1, new QTableWidgetItem(deviceStatus.colorSensor ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 2, new QTableWidgetItem(deviceStatus.sleeveLimit ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 3, new QTableWidgetItem(deviceStatus.electromagnetUnlockButton ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 4, new QTableWidgetItem(deviceStatus.batteryLowAlarm ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 5, new QTableWidgetItem(deviceStatus.pressureSensor ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 6, new QTableWidgetItem(deviceStatus.electromagneticLock1 ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 7, new QTableWidgetItem(deviceStatus.electromagneticLock2 ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 8, new QTableWidgetItem(deviceStatus.accessory1 ? "1" : "0"));
+    ui->tableWidgetDataView->setItem(targetRow, 9, new QTableWidgetItem(deviceStatus.accessory2 ? "1" : "0"));
+    
+    // 更新导通数据列
+    QString conductionDataStr = ConductionDataToString(message.conductionData);
+    ui->tableWidgetDataView->setItem(targetRow, 10, new QTableWidgetItem(conductionDataStr));
+    
+    // 自动滚动到最新数据
+    ui->tableWidgetDataView->scrollToItem(ui->tableWidgetDataView->item(targetRow, 0));
+}
+
+QString MainWindow::DeviceStatusToString(const WhtsProtocol::DeviceStatus& status)
+{
+    QStringList statusList;
+    if (status.colorSensor) statusList << "CS";
+    if (status.sleeveLimit) statusList << "SL";
+    if (status.electromagnetUnlockButton) statusList << "EUB";
+    if (status.batteryLowAlarm) statusList << "BLA";
+    if (status.pressureSensor) statusList << "PS";
+    if (status.electromagneticLock1) statusList << "EL1";
+    if (status.electromagneticLock2) statusList << "EL2";
+    if (status.accessory1) statusList << "A1";
+    if (status.accessory2) statusList << "A2";
+    
+    return statusList.join(",");
+}
+
+QString MainWindow::ConductionDataToString(const std::vector<uint8_t>& data)
+{
+    QString result;
+    for (size_t i = 0; i < data.size(); ++i) {
+        result += QString("%1").arg(data[i], 2, 16, QChar('0')).toUpper();
+        if (i < data.size() - 1) {
+            result += " ";
+        }
+    }
+    return result;
+}
+
+void MainWindow::OnClearDataClicked()
+{
+    // 清除数据查看表格中的所有数据
+    ui->tableWidgetDataView->setRowCount(0);
+    
+    LogMessage("清除数据查看表格", "INFO");
 }

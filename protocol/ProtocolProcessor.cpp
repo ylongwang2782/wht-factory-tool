@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cstring>
 
-#include "elog.h"
 #include "messages/Backend2Master.h"
 #include "messages/Master2Backend.h"
 #include "messages/Master2Slave.h"
@@ -320,7 +319,6 @@ bool ProtocolProcessor::parseBackend2MasterPacket(
     if (payload.size() < 1) return false;
 
     uint8_t messageId = payload[0];
-    elog_v("ProtocolProcessor", "Backend2Master messageId: 0x%02X", messageId);
 
     message = createMessage(PacketId::BACKEND_TO_MASTER, messageId);
     if (!message) return false;
@@ -426,39 +424,28 @@ std::vector<std::vector<uint8_t>> ProtocolProcessor::fragmentFrame(
     const std::vector<uint8_t> &frameData) {
     std::vector<std::vector<uint8_t>> fragments;
 
-    elog_v("ProtocolProcessor",
-           "Starting frame fragmentation, original frame size: %d bytes, MTU: "
-           "%d",
-           frameData.size(), mtu_);
+
 
     if (frameData.size() < 7) {    // Minimum frame header is 7 bytes
-        elog_w("ProtocolProcessor",
-               "Frame data too small for fragmentation: %d bytes",
-               frameData.size());
+
         return {frameData};
     }
 
     // Parse original frame header
     uint8_t packetId = frameData[2];
-    elog_v("ProtocolProcessor", "Original frame PacketId: 0x%02X", packetId);
 
     // Calculate effective payload size per fragment (MTU - 7 bytes frame
     // header)
     size_t fragmentPayloadSize = mtu_ - 7;
-    elog_v("ProtocolProcessor", "Maximum payload size per fragment: %d bytes",
-           fragmentPayloadSize);
 
     // Get original payload (starting from 7th byte)
     std::vector<uint8_t> originalPayload(frameData.begin() + 7,
                                          frameData.end());
-    elog_v("ProtocolProcessor", "Original payload size: %d bytes",
-           originalPayload.size());
 
     // Calculate how many fragments are needed
     uint8_t totalFragments = static_cast<uint8_t>(
         (originalPayload.size() + fragmentPayloadSize - 1) /
         fragmentPayloadSize);
-    elog_v("ProtocolProcessor", "Total fragments needed: %d", totalFragments);
 
     // Generate each fragment
     for (uint8_t i = 0; i < totalFragments; ++i) {
@@ -486,17 +473,10 @@ std::vector<std::vector<uint8_t>> ProtocolProcessor::fragmentFrame(
         fragment.insert(fragment.end(), originalPayload.begin() + startPos,
                         originalPayload.begin() + endPos);
 
-        elog_v("ProtocolProcessor",
-               "Fragment #%d/%d, sequence=%d, more_fragments=%d, "
-               "fragment_size=%d, payload_size=%d",
-               i, totalFragments - 1, i, (i == totalFragments - 1) ? 0 : 1,
-               fragment.size(), fragmentSize);
-
         fragments.push_back(fragment);
     }
 
-    elog_v("ProtocolProcessor",
-           "Fragmentation completed, generated %d fragments", fragments.size());
+
     return fragments;
 }
 
@@ -508,23 +488,14 @@ void ProtocolProcessor::processReceivedData(const std::vector<uint8_t> &data) {
 
     // Prevent receive buffer from becoming too large
     if (receiveBuffer_.size() + data.size() > MAX_RECEIVE_BUFFER_SIZE) {
-        elog_w("ProtocolProcessor",
-               "Receive buffer will exceed maximum limit, clearing buffer. "
-               "Current size: %d, new data size: %d, max limit: %d",
-               receiveBuffer_.size(), data.size(), MAX_RECEIVE_BUFFER_SIZE);
-        // Clear buffer to prevent memory overflow
         receiveBuffer_.clear();
     }
 
     // Add new data to receive buffer
     receiveBuffer_.insert(receiveBuffer_.end(), data.begin(), data.end());
-    elog_v("ProtocolProcessor", "Current receive buffer size: %d bytes",
-           receiveBuffer_.size());
 
     // Try to extract complete frames from buffer
     bool framesExtracted = extractCompleteFrames();
-    elog_v("ProtocolProcessor", "Frame extraction result: %s",
-           framesExtracted ? "frames found" : "no frames found");
 
     // Clean up expired fragments
     cleanupExpiredFragments();
@@ -535,28 +506,17 @@ bool ProtocolProcessor::extractCompleteFrames() {
     bool foundFrames = false;
     size_t pos = 0;
 
-    elog_v(
-        "ProtocolProcessor",
-        "Starting frame extraction from receive buffer, buffer size: %d bytes",
-        receiveBuffer_.size());
 
     while (pos < receiveBuffer_.size()) {
         // Find frame header
         size_t frameStart = findFrameHeader(receiveBuffer_, pos);
         if (frameStart == SIZE_MAX) {
-            elog_v("ProtocolProcessor",
-                   "No frame header found, skipping current data");
             break;    // No frame header found
         }
 
-        elog_v("ProtocolProcessor", "Frame header found at position: %d",
-               frameStart);
 
         // Check if there's enough data to read frame length
         if (frameStart + 7 > receiveBuffer_.size()) {
-            elog_v("ProtocolProcessor",
-                   "Insufficient data to read frame "
-                   "length, waiting for more data");
             break;    // Not enough data, wait for more
         }
 
@@ -564,16 +524,9 @@ bool ProtocolProcessor::extractCompleteFrames() {
         uint16_t frameLength = readUint16LE(receiveBuffer_, frameStart + 5);
         size_t totalFrameSize = 7 + frameLength;
 
-        elog_v("ProtocolProcessor",
-               "Frame payload length: %d, total frame size: %d", frameLength,
-               totalFrameSize);
 
         // 检查是否有完整的帧
         if (frameStart + totalFrameSize > receiveBuffer_.size()) {
-            elog_v(
-                "ProtocolProcessor",
-                "Incomplete frame, waiting for more data. Need: %d, have: %d",
-                frameStart + totalFrameSize, receiveBuffer_.size());
             break;    // 帧不完整，等待更多数据
         }
 
@@ -590,64 +543,35 @@ bool ProtocolProcessor::extractCompleteFrames() {
         // 解析帧
         Frame frame;
         if (Frame::deserialize(frameData, frame)) {
-            elog_v(
-                "ProtocolProcessor",
-                "Frame parsed successfully, PacketId: 0x%02X, "
-                "fragment_sequence: %d, more_fragments: %d, payload_length: %d",
-                frame.packetId, frame.fragmentsSequence,
-                frame.moreFragmentsFlag, frame.packetLength);
 
             // 检查是否是分片
             if (frame.moreFragmentsFlag || frame.fragmentsSequence > 0) {
-                elog_v("ProtocolProcessor",
-                       "Fragment frame detected, starting fragment reassembly");
                 // 处理分片重组
                 std::vector<uint8_t> completeFrame;
                 if (reassembleFragments(frame, completeFrame)) {
-                    elog_v("ProtocolProcessor",
-                           "Fragment reassembly completed, reassembled frame "
-                           "size: %d bytes",
-                           completeFrame.size());
                     // 分片重组完成，解析完整帧
                     Frame completedFrame;
                     if (Frame::deserialize(completeFrame, completedFrame)) {
-                        elog_v("ProtocolProcessor",
-                               "Reassembled frame parsed successfully, "
-                               "PacketId: 0x%02X, payload_length: %d",
-                               completedFrame.packetId,
-                               completedFrame.packetLength);
                         completeFrames_.push(completedFrame);
                         foundFrames = true;
                     } else {
-                        elog_e("ProtocolProcessor",
-                               "Failed to parse reassembled frame");
                     }
                 } else {
-                    elog_v("ProtocolProcessor",
-                           "Fragment reassembly not complete, waiting for more "
-                           "fragments");
                 }
             } else {
-                elog_v("ProtocolProcessor",
-                       "Single complete frame, adding to complete frame queue");
                 // 单个完整帧
                 completeFrames_.push(frame);
                 foundFrames = true;
             }
         } else {
-            elog_e("ProtocolProcessor", "Frame parsing failed");
         }
 
         // 移动到下一个位置
         pos = frameStart + totalFrameSize;
-        elog_v("ProtocolProcessor", "Moving to next position: %d", pos);
     }
 
     // 清理已处理的数据
     if (pos > 0) {
-        elog_v("ProtocolProcessor",
-               "Cleaning processed data, from 0 to %d, remaining %d bytes", pos,
-               receiveBuffer_.size() - pos);
         receiveBuffer_.erase(receiveBuffer_.begin(),
                              receiveBuffer_.begin() + pos);
     }
@@ -670,17 +594,10 @@ size_t ProtocolProcessor::findFrameHeader(const std::vector<uint8_t> &buffer,
 // 分片重组
 bool ProtocolProcessor::reassembleFragments(
     const Frame &frame, std::vector<uint8_t> &completeFrame) {
-    elog_v("ProtocolProcessor",
-           "Starting fragment reassembly, fragment_sequence: %d, "
-           "more_fragments: %d",
-           frame.fragmentsSequence, frame.moreFragmentsFlag);
 
     // 从帧载荷中提取源ID (假设载荷格式为: MessageId + SourceId + ...)
     if (frame.payload.size() < 5) {
-        elog_e("ProtocolProcessor",
-               "Fragment payload too small to extract source ID, payload size: "
-               "%d",
-               frame.payload.size());
+
         return false;    // 载荷太小
     }
 
@@ -688,10 +605,6 @@ bool ProtocolProcessor::reassembleFragments(
     uint32_t sourceId = readUint32LE(frame.payload, 1);    // 跳过MessageId
     uint64_t fragmentId = generateFragmentId(frame.packetId);
 
-    elog_v("ProtocolProcessor",
-           "Fragment info - MessageId: 0x%02X, SourceId: 0x%08X, generated "
-           "FragmentId: 0x%016llX",
-           messageId, sourceId, fragmentId);
 
     // 查找或创建分片信息
     auto &fragmentInfo = fragmentMap_[fragmentId];
@@ -700,26 +613,17 @@ bool ProtocolProcessor::reassembleFragments(
 
     // 存储分片数据
     fragmentInfo.fragments[frame.fragmentsSequence] = frame.payload;
-    elog_v("ProtocolProcessor",
-           "Storing fragment data, sequence: %d, payload size: %d, collected "
-           "fragments: %d",
-           frame.fragmentsSequence, frame.payload.size(),
-           fragmentInfo.fragments.size());
+
 
     // 如果这是最后一个分片，计算总分片数
     if (frame.moreFragmentsFlag == 0) {
         fragmentInfo.totalFragments = frame.fragmentsSequence + 1;
-        elog_v("ProtocolProcessor",
-               "Received last fragment, total fragments set to: %d",
-               fragmentInfo.totalFragments);
+
     }
 
     // 检查是否收集完所有分片
     if (fragmentInfo.totalFragments > 0 && fragmentInfo.isComplete()) {
-        elog_v("ProtocolProcessor",
-               "All fragments collected, starting complete frame reassembly, "
-               "total fragments: %d",
-               fragmentInfo.totalFragments);
+
 
         // 重组完整载荷
         std::vector<uint8_t> completePayload;
@@ -727,15 +631,9 @@ bool ProtocolProcessor::reassembleFragments(
         // First add the complete payload of the first fragment
         auto firstFragment = fragmentInfo.fragments.find(0);
         if (firstFragment != fragmentInfo.fragments.end()) {
-            elog_v("ProtocolProcessor",
-                   "Adding first fragment complete payload, size: %d",
-                   firstFragment->second.size());
-            completePayload.insert(completePayload.end(),
-                                   firstFragment->second.begin(),
-                                   firstFragment->second.end());
+
         } else {
-            elog_e("ProtocolProcessor",
-                   "Critical error: missing first fragment (sequence 0)");
+
             return false;
         }
 
@@ -748,8 +646,6 @@ bool ProtocolProcessor::reassembleFragments(
             }
         }
 
-        elog_v("ProtocolProcessor", "Reassembled complete payload size: %d",
-               completePayload.size());
 
         // Build complete frame
         completeFrame.clear();
@@ -764,26 +660,15 @@ bool ProtocolProcessor::reassembleFragments(
         completeFrame.push_back(payloadLength & 0xFF);
         completeFrame.push_back((payloadLength >> 8) & 0xFF);
 
-        elog_v("ProtocolProcessor",
-               "Setting complete frame header, PacketId: 0x%02X, payload "
-               "length: %d",
-               frame.packetId, payloadLength);
+
 
         // Add payload
         completeFrame.insert(completeFrame.end(), completePayload.begin(),
                              completePayload.end());
 
-        // elog_v("ProtocolProcessor",
-        //        "Complete frame reassembly finished, total size: %d bytes, "
-        //        "frame data prefix: %s",
-        //        completeFrame.size(),
-        //        bytesToHexString(completeFrame, 16).c_str());
-
         // Clean up fragment information
         fragmentMap_.erase(fragmentId);
-        elog_v("ProtocolProcessor",
-               "Cleaning fragment info, current fragment map size: %d",
-               fragmentMap_.size());
+
 
         return true;
     }

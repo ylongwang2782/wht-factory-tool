@@ -18,7 +18,6 @@ target_include_directories(ProtocolCore
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/messages
-    ${CMAKE_CURRENT_SOURCE_DIR}/../app
 )
 
 # Link with dependencies

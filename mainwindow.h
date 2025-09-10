@@ -19,11 +19,14 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QHeaderView>
 
 // Protocol相关头文件
 #include "protocol/ProtocolProcessor.h"
 #include "protocol/messages/Backend2Master.h"
 #include "protocol/messages/Master2Backend.h"
+#include "protocol/messages/Slave2Backend.h"
+#include "protocol/DeviceStatus.h"
 #include "slaveconfigdialog.h"
 
 QT_BEGIN_NAMESPACE
@@ -54,6 +57,9 @@ private slots:
     void OnDeleteSlaveConfigClicked();
     void OnSendSlaveConfigClicked();
     void OnCopySlaveConfigClicked();
+    void OnStartClicked();
+    void OnStopClicked();
+    void OnClearDataClicked();
 
 private:
     void InitializeUI();
@@ -73,6 +79,11 @@ private:
     void UpdateSlaveConfigTable();
     QWidget* CreateSlaveConfigActionWidget(int row);
     void SendSlaveConfig(const SlaveConfigData& configData);
+    void HandleConductionDataMessage(uint32_t slaveId, const WhtsProtocol::DeviceStatus& deviceStatus, const WhtsProtocol::Slave2Backend::ConductionDataMessage& message);
+    void UpdateDataViewTable(uint32_t slaveId, const WhtsProtocol::DeviceStatus& deviceStatus, const WhtsProtocol::Slave2Backend::ConductionDataMessage& message);
+    void SendCtrlMessage(uint8_t runningStatus);
+    QString DeviceStatusToString(const WhtsProtocol::DeviceStatus& status);
+    QString ConductionDataToString(const std::vector<uint8_t>& data);
 
 private:
     Ui::MainWindow *ui;
@@ -91,5 +102,8 @@ private:
     // 从机配置管理
     QList<SlaveConfigData> m_slaveConfigs;
     QSettings *m_pSettings;
+    
+    // 数据查看相关
+    bool m_bDataViewRunning;
 };
 #endif // MAINWINDOW_H
