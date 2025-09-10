@@ -34,6 +34,16 @@ add_executable(${PROJECT_NAME}
     slaveconfigdialog.h
 )
 
+# 引入 dark 主题的 qrc
+qt6_add_resources(QDARKSTYLE_QRC_DARK
+    ${CMAKE_SOURCE_DIR}/external/qdarkstyle/dark/darkstyle.qrc
+)
+
+# 添加到目标
+target_sources(${PROJECT_NAME} PRIVATE
+    ${QDARKSTYLE_QRC_DARK}
+)
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE APP_VERSION="${PROJECT_VERSION}")
 
 # 链接 Qt 库和protocol库
