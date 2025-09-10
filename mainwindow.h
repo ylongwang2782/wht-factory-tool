@@ -53,6 +53,7 @@ private slots:
     void OnEditSlaveConfigClicked();
     void OnDeleteSlaveConfigClicked();
     void OnSendSlaveConfigClicked();
+    void OnCopySlaveConfigClicked();
 
 private:
     void InitializeUI();

@@ -81,7 +81,7 @@ void MainWindow::InitializeUI()
     // 初始化从机配置表格
     ui->tableWidgetSlaveConfigs->setColumnWidth(0, 150); // 配置名称
     ui->tableWidgetSlaveConfigs->setColumnWidth(1, 200); // 配置信息
-    ui->tableWidgetSlaveConfigs->setColumnWidth(2, 200); // 操作
+    ui->tableWidgetSlaveConfigs->setColumnWidth(2, 250); // 操作（增加宽度以容纳4个按钮）
     
     // 设置窗口大小
     resize(1000, 700);
@@ -551,11 +551,15 @@ void MainWindow::UpdateSlaveConfigTable()
     for (int i = 0; i < m_slaveConfigs.size(); ++i) {
         const SlaveConfigData& config = m_slaveConfigs[i];
         
-        // 配置名称
-        ui->tableWidgetSlaveConfigs->setItem(i, 0, new QTableWidgetItem(config.name));
+        // 配置名称（只读）
+        QTableWidgetItem* nameItem = new QTableWidgetItem(config.name);
+        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+        ui->tableWidgetSlaveConfigs->setItem(i, 0, nameItem);
         
-        // 配置信息
-        ui->tableWidgetSlaveConfigs->setItem(i, 1, new QTableWidgetItem(config.getConfigDescription()));
+        // 配置信息（只读）
+        QTableWidgetItem* infoItem = new QTableWidgetItem(config.getConfigDescription());
+        infoItem->setFlags(infoItem->flags() & ~Qt::ItemIsEditable);
+        ui->tableWidgetSlaveConfigs->setItem(i, 1, infoItem);
         
         // 操作按钮
         QWidget* actionWidget = CreateSlaveConfigActionWidget(i);
@@ -568,26 +572,31 @@ QWidget* MainWindow::CreateSlaveConfigActionWidget(int row)
     QWidget* container = new QWidget();
     QHBoxLayout* layout = new QHBoxLayout(container);
     layout->setContentsMargins(5, 2, 5, 2);
-    layout->setSpacing(5);
+    layout->setSpacing(3);
     
     QPushButton* sendButton = new QPushButton("发送", container);
     QPushButton* editButton = new QPushButton("编辑", container);
+    QPushButton* copyButton = new QPushButton("复制", container);
     QPushButton* deleteButton = new QPushButton("删除", container);
     
     sendButton->setProperty("row", row);
     editButton->setProperty("row", row);
+    copyButton->setProperty("row", row);
     deleteButton->setProperty("row", row);
     
-    sendButton->setFixedSize(50, 25);
-    editButton->setFixedSize(50, 25);
-    deleteButton->setFixedSize(50, 25);
+    sendButton->setFixedSize(45, 25);
+    editButton->setFixedSize(45, 25);
+    copyButton->setFixedSize(45, 25);
+    deleteButton->setFixedSize(45, 25);
     
     connect(sendButton, &QPushButton::clicked, this, &MainWindow::OnSendSlaveConfigClicked);
     connect(editButton, &QPushButton::clicked, this, &MainWindow::OnEditSlaveConfigClicked);
+    connect(copyButton, &QPushButton::clicked, this, &MainWindow::OnCopySlaveConfigClicked);
     connect(deleteButton, &QPushButton::clicked, this, &MainWindow::OnDeleteSlaveConfigClicked);
     
     layout->addWidget(sendButton);
     layout->addWidget(editButton);
+    layout->addWidget(copyButton);
     layout->addWidget(deleteButton);
     layout->addStretch();
     
@@ -634,4 +643,48 @@ void MainWindow::HandleSlaveConfigResponse(const WhtsProtocol::Master2Backend::S
     QMessageBox::information(this, "从机配置响应", 
                            QString("配置结果: %1\n从机数量: %2")
                            .arg(statusText).arg(message.slaveNum));
+}
+
+void MainWindow::OnCopySlaveConfigClicked()
+{
+    QPushButton* button = qobject_cast<QPushButton*>(sender());
+    if (!button) return;
+    
+    int row = button->property("row").toInt();
+    if (row >= 0 && row < m_slaveConfigs.size()) {
+        // 复制配置数据
+        SlaveConfigData copiedConfig = m_slaveConfigs[row];
+        
+        // 修改配置名称，避免重复
+        copiedConfig.name = copiedConfig.name + "_副本";
+        
+        // 确保配置名称的唯一性
+        int copyIndex = 1;
+        QString baseName = copiedConfig.name;
+        while (true) {
+            bool nameExists = false;
+            for (const auto& config : m_slaveConfigs) {
+                if (config.name == copiedConfig.name) {
+                    nameExists = true;
+                    break;
+                }
+            }
+            
+            if (!nameExists) {
+                break;
+            }
+            
+            copyIndex++;
+            copiedConfig.name = baseName + QString("(%1)").arg(copyIndex);
+        }
+        
+        // 将复制的配置插入到当前行的下一行
+        m_slaveConfigs.insert(row + 1, copiedConfig);
+        
+        // 保存配置并更新表格
+        SaveSlaveConfigs();
+        UpdateSlaveConfigTable();
+        
+        LogMessage(QString("复制从机配置: %1 -> %2").arg(m_slaveConfigs[row].name).arg(copiedConfig.name), "INFO");
+    }
 }
