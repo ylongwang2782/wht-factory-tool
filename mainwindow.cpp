@@ -11,6 +11,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_pLogFile(nullptr)
     , m_pLogStream(nullptr)
     , m_pProtocolProcessor(nullptr)
+    , m_pSettings(nullptr)
 {
     ui->setupUi(this);
     InitializeUI();
@@ -18,12 +19,18 @@ MainWindow::MainWindow(QWidget *parent)
     // 创建协议处理器
     m_pProtocolProcessor = new WhtsProtocol::ProtocolProcessor();
     
+    // 创建设置对象
+    m_pSettings = new QSettings("WHT", "FactoryTool", this);
+    
     // 创建日志文件
     QString logFileName = QString("udp_debug_%1.log").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss"));
     m_pLogFile = new QFile(logFileName, this);
     if (m_pLogFile->open(QIODevice::WriteOnly | QIODevice::Append)) {
         m_pLogStream = new QTextStream(m_pLogFile);
     }
+    
+    // 加载从机配置
+    LoadSlaveConfigs();
     
     LogMessage("WHT工厂工具启动");
 }
@@ -59,6 +66,7 @@ void MainWindow::InitializeUI()
     connect(ui->pushButtonClearSend, &QPushButton::clicked, this, &MainWindow::OnClearSendClicked);
     connect(ui->pushButtonClearLog, &QPushButton::clicked, this, &MainWindow::OnClearLogClicked);
     connect(ui->pushButtonQueryDevices, &QPushButton::clicked, this, &MainWindow::OnQueryDevicesClicked);
+    connect(ui->pushButtonAddSlaveConfig, &QPushButton::clicked, this, &MainWindow::OnAddSlaveConfigClicked);
     
     // 设置发送框回车键发送
     connect(ui->lineEditSendData, &QLineEdit::returnPressed, this, &MainWindow::OnSendClicked);
@@ -69,6 +77,11 @@ void MainWindow::InitializeUI()
     ui->tableWidgetDevices->setColumnWidth(2, 100); // 在线状态
     ui->tableWidgetDevices->setColumnWidth(3, 120); // 版本
     ui->tableWidgetDevices->setColumnWidth(4, 150); // 电池电量
+    
+    // 初始化从机配置表格
+    ui->tableWidgetSlaveConfigs->setColumnWidth(0, 150); // 配置名称
+    ui->tableWidgetSlaveConfigs->setColumnWidth(1, 200); // 配置信息
+    ui->tableWidgetSlaveConfigs->setColumnWidth(2, 200); // 操作
     
     // 设置窗口大小
     resize(1000, 700);
@@ -332,6 +345,13 @@ void MainWindow::ProcessProtocolMessage(const std::vector<uint8_t> &data)
                     HandleDeviceListResponse(*deviceListResponse);
                 }
             }
+            else if (message->getMessageId() == static_cast<uint8_t>(WhtsProtocol::Master2BackendMessageId::SLAVE_CFG_RSP_MSG)) {
+                // 转换为从机配置响应消息
+                auto slaveConfigResponse = dynamic_cast<WhtsProtocol::Master2Backend::SlaveConfigResponseMessage*>(message.get());
+                if (slaveConfigResponse) {
+                    HandleSlaveConfigResponse(*slaveConfigResponse);
+                }
+            }
         }
     }
 }
@@ -425,4 +445,193 @@ QWidget* MainWindow::CreateBatteryWidget(uint8_t batteryLevel)
     layout->addWidget(percentLabel, 0); // 百分比标签固定宽度
     
     return container;
+}
+
+void MainWindow::OnAddSlaveConfigClicked()
+{
+    SlaveConfigDialog dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        SlaveConfigData configData = dialog.getConfigData();
+        m_slaveConfigs.append(configData);
+        SaveSlaveConfigs();
+        UpdateSlaveConfigTable();
+        LogMessage(QString("添加从机配置: %1").arg(configData.name), "INFO");
+    }
+}
+
+void MainWindow::OnEditSlaveConfigClicked()
+{
+    QPushButton* button = qobject_cast<QPushButton*>(sender());
+    if (!button) return;
+    
+    int row = button->property("row").toInt();
+    if (row >= 0 && row < m_slaveConfigs.size()) {
+        SlaveConfigDialog dialog(m_slaveConfigs[row], this);
+        if (dialog.exec() == QDialog::Accepted) {
+            m_slaveConfigs[row] = dialog.getConfigData();
+            SaveSlaveConfigs();
+            UpdateSlaveConfigTable();
+            LogMessage(QString("编辑从机配置: %1").arg(m_slaveConfigs[row].name), "INFO");
+        }
+    }
+}
+
+void MainWindow::OnDeleteSlaveConfigClicked()
+{
+    QPushButton* button = qobject_cast<QPushButton*>(sender());
+    if (!button) return;
+    
+    int row = button->property("row").toInt();
+    if (row >= 0 && row < m_slaveConfigs.size()) {
+        QString configName = m_slaveConfigs[row].name;
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, "确认删除", 
+            QString("确定要删除配置 \"%1\" 吗？").arg(configName),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        
+        if (reply == QMessageBox::Yes) {
+            m_slaveConfigs.removeAt(row);
+            SaveSlaveConfigs();
+            UpdateSlaveConfigTable();
+            LogMessage(QString("删除从机配置: %1").arg(configName), "INFO");
+        }
+    }
+}
+
+void MainWindow::OnSendSlaveConfigClicked()
+{
+    QPushButton* button = qobject_cast<QPushButton*>(sender());
+    if (!button) return;
+    
+    int row = button->property("row").toInt();
+    if (row >= 0 && row < m_slaveConfigs.size()) {
+        if (!m_bConnected || !m_pUdpSocket) {
+            QMessageBox::warning(this, "警告", "请先连接UDP");
+            return;
+        }
+        
+        SendSlaveConfig(m_slaveConfigs[row]);
+    }
+}
+
+void MainWindow::LoadSlaveConfigs()
+{
+    m_slaveConfigs.clear();
+    
+    int size = m_pSettings->beginReadArray("SlaveConfigs");
+    for (int i = 0; i < size; ++i) {
+        m_pSettings->setArrayIndex(i);
+        SlaveConfigData config;
+        QString jsonString = m_pSettings->value("config").toString();
+        if (config.fromJsonString(jsonString)) {
+            m_slaveConfigs.append(config);
+        }
+    }
+    m_pSettings->endArray();
+    
+    UpdateSlaveConfigTable();
+}
+
+void MainWindow::SaveSlaveConfigs()
+{
+    m_pSettings->beginWriteArray("SlaveConfigs");
+    for (int i = 0; i < m_slaveConfigs.size(); ++i) {
+        m_pSettings->setArrayIndex(i);
+        m_pSettings->setValue("config", m_slaveConfigs[i].toJsonString());
+    }
+    m_pSettings->endArray();
+    m_pSettings->sync();
+}
+
+void MainWindow::UpdateSlaveConfigTable()
+{
+    ui->tableWidgetSlaveConfigs->setRowCount(m_slaveConfigs.size());
+    
+    for (int i = 0; i < m_slaveConfigs.size(); ++i) {
+        const SlaveConfigData& config = m_slaveConfigs[i];
+        
+        // 配置名称
+        ui->tableWidgetSlaveConfigs->setItem(i, 0, new QTableWidgetItem(config.name));
+        
+        // 配置信息
+        ui->tableWidgetSlaveConfigs->setItem(i, 1, new QTableWidgetItem(config.getConfigDescription()));
+        
+        // 操作按钮
+        QWidget* actionWidget = CreateSlaveConfigActionWidget(i);
+        ui->tableWidgetSlaveConfigs->setCellWidget(i, 2, actionWidget);
+    }
+}
+
+QWidget* MainWindow::CreateSlaveConfigActionWidget(int row)
+{
+    QWidget* container = new QWidget();
+    QHBoxLayout* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(5, 2, 5, 2);
+    layout->setSpacing(5);
+    
+    QPushButton* sendButton = new QPushButton("发送", container);
+    QPushButton* editButton = new QPushButton("编辑", container);
+    QPushButton* deleteButton = new QPushButton("删除", container);
+    
+    sendButton->setProperty("row", row);
+    editButton->setProperty("row", row);
+    deleteButton->setProperty("row", row);
+    
+    sendButton->setFixedSize(50, 25);
+    editButton->setFixedSize(50, 25);
+    deleteButton->setFixedSize(50, 25);
+    
+    connect(sendButton, &QPushButton::clicked, this, &MainWindow::OnSendSlaveConfigClicked);
+    connect(editButton, &QPushButton::clicked, this, &MainWindow::OnEditSlaveConfigClicked);
+    connect(deleteButton, &QPushButton::clicked, this, &MainWindow::OnDeleteSlaveConfigClicked);
+    
+    layout->addWidget(sendButton);
+    layout->addWidget(editButton);
+    layout->addWidget(deleteButton);
+    layout->addStretch();
+    
+    return container;
+}
+
+void MainWindow::SendSlaveConfig(const SlaveConfigData& configData)
+{
+    // 使用协议处理器打包消息
+    auto packets = m_pProtocolProcessor->packBackend2MasterMessage(configData.config);
+    
+    // 发送所有分片
+    for (const auto& packet : packets) {
+        QByteArray data(reinterpret_cast<const char*>(packet.data()), packet.size());
+        qint64 bytesWritten = m_pUdpSocket->writeDatagram(data, m_remoteAddress, m_remotePort);
+        
+        if (bytesWritten == -1) {
+            LogMessage(QString("发送从机配置失败: %1").arg(m_pUdpSocket->errorString()), "ERROR");
+            return;
+        } else {
+            LogMessage(QString("发送从机配置 \"%1\" -> %2:%3 [%4] (%5 bytes)")
+                      .arg(configData.name)
+                      .arg(m_remoteAddress.toString())
+                      .arg(m_remotePort)
+                      .arg(ByteArrayToHexString(data))
+                      .arg(bytesWritten), "SEND");
+        }
+    }
+}
+
+void MainWindow::HandleSlaveConfigResponse(const WhtsProtocol::Master2Backend::SlaveConfigResponseMessage &message)
+{
+    QString statusText;
+    if (message.status == 0) {
+        statusText = "成功";
+        LogMessage(QString("从机配置响应: 状态=%1, 从机数量=%2")
+                  .arg(statusText).arg(message.slaveNum), "INFO");
+    } else {
+        statusText = "失败";
+        LogMessage(QString("从机配置响应: 状态=%1, 从机数量=%2")
+                  .arg(statusText).arg(message.slaveNum), "ERROR");
+    }
+    
+    QMessageBox::information(this, "从机配置响应", 
+                           QString("配置结果: %1\n从机数量: %2")
+                           .arg(statusText).arg(message.slaveNum));
 }

@@ -15,11 +15,16 @@
 #include <QWidget>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSettings>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 // Protocol相关头文件
 #include "protocol/ProtocolProcessor.h"
 #include "protocol/messages/Backend2Master.h"
 #include "protocol/messages/Master2Backend.h"
+#include "slaveconfigdialog.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -44,6 +49,10 @@ private slots:
     void OnReadyRead();
     void OnSocketError(QAbstractSocket::SocketError error);
     void OnQueryDevicesClicked();
+    void OnAddSlaveConfigClicked();
+    void OnEditSlaveConfigClicked();
+    void OnDeleteSlaveConfigClicked();
+    void OnSendSlaveConfigClicked();
 
 private:
     void InitializeUI();
@@ -57,6 +66,12 @@ private:
     void UpdateDeviceTable(const std::vector<WhtsProtocol::Master2Backend::DeviceListResponseMessage::DeviceInfo> &devices);
     void SendDeviceListRequest();
     QWidget* CreateBatteryWidget(uint8_t batteryLevel);
+    void HandleSlaveConfigResponse(const WhtsProtocol::Master2Backend::SlaveConfigResponseMessage &message);
+    void LoadSlaveConfigs();
+    void SaveSlaveConfigs();
+    void UpdateSlaveConfigTable();
+    QWidget* CreateSlaveConfigActionWidget(int row);
+    void SendSlaveConfig(const SlaveConfigData& configData);
 
 private:
     Ui::MainWindow *ui;
@@ -71,5 +86,9 @@ private:
     
     // Protocol处理器
     WhtsProtocol::ProtocolProcessor *m_pProtocolProcessor;
+    
+    // 从机配置管理
+    QList<SlaveConfigData> m_slaveConfigs;
+    QSettings *m_pSettings;
 };
 #endif // MAINWINDOW_H

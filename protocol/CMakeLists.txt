@@ -26,7 +26,6 @@ target_link_libraries(ProtocolCore
     PUBLIC
     ProtocolUtils
     ProtocolMessages
-    easylogger
 )
 
 # Set target properties

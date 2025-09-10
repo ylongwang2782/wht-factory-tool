@@ -30,6 +30,8 @@ add_executable(${PROJECT_NAME}
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    slaveconfigdialog.cpp
+    slaveconfigdialog.h
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE APP_VERSION="${PROJECT_VERSION}")
