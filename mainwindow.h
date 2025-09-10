@@ -52,6 +52,7 @@ private slots:
     void OnReadyRead();
     void OnSocketError(QAbstractSocket::SocketError error);
     void OnQueryDevicesClicked();
+    void OnClearDevicesClicked();
     void OnAddSlaveConfigClicked();
     void OnEditSlaveConfigClicked();
     void OnDeleteSlaveConfigClicked();
@@ -72,6 +73,7 @@ private:
     void HandleDeviceListResponse(const WhtsProtocol::Master2Backend::DeviceListResponseMessage &message);
     void UpdateDeviceTable(const std::vector<WhtsProtocol::Master2Backend::DeviceListResponseMessage::DeviceInfo> &devices);
     void SendDeviceListRequest();
+    void SendClearDeviceListRequest();
     QWidget* CreateBatteryWidget(uint8_t batteryLevel);
     void HandleSlaveConfigResponse(const WhtsProtocol::Master2Backend::SlaveConfigResponseMessage &message);
     void LoadSlaveConfigs();

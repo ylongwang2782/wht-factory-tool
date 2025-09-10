@@ -67,6 +67,7 @@ void MainWindow::InitializeUI()
     connect(ui->pushButtonClearSend, &QPushButton::clicked, this, &MainWindow::OnClearSendClicked);
     connect(ui->pushButtonClearLog, &QPushButton::clicked, this, &MainWindow::OnClearLogClicked);
     connect(ui->pushButtonQueryDevices, &QPushButton::clicked, this, &MainWindow::OnQueryDevicesClicked);
+    connect(ui->pushButtonClearDevices, &QPushButton::clicked, this, &MainWindow::OnClearDevicesClicked);
     connect(ui->pushButtonAddSlaveConfig, &QPushButton::clicked, this, &MainWindow::OnAddSlaveConfigClicked);
     connect(ui->pushButtonStart, &QPushButton::clicked, this, &MainWindow::OnStartClicked);
     connect(ui->pushButtonStop, &QPushButton::clicked, this, &MainWindow::OnStopClicked);
@@ -297,6 +298,7 @@ void MainWindow::UpdateConnectionState(bool connected)
     ui->pushButtonDisconnect->setEnabled(connected);
     ui->pushButtonSend->setEnabled(connected);
     ui->pushButtonQueryDevices->setEnabled(connected);
+    ui->pushButtonClearDevices->setEnabled(connected);
     ui->pushButtonStart->setEnabled(connected);
     ui->pushButtonStop->setEnabled(connected && m_bDataViewRunning);
     
@@ -343,6 +345,44 @@ void MainWindow::SendDeviceListRequest()
                       .arg(bytesWritten), "SEND");
         }
     }
+}
+
+void MainWindow::OnClearDevicesClicked()
+{
+    if (!m_bConnected || !m_pUdpSocket) {
+        QMessageBox::warning(this, "警告", "请先连接UDP");
+        return;
+    }
+
+    SendClearDeviceListRequest();
+    
+}
+
+void MainWindow::SendClearDeviceListRequest()
+{
+    // 创建设备列表请求消息
+    WhtsProtocol::Backend2Master::ClearDeviceListMessage clearDeviceListReq;
+    clearDeviceListReq.reserve = 0; // 保留字段
+
+        // 使用协议处理器打包消息
+        auto packets = m_pProtocolProcessor->packBackend2MasterMessage(clearDeviceListReq);
+    
+        // 发送所有分片
+        for (const auto& packet : packets) {
+            QByteArray data(reinterpret_cast<const char*>(packet.data()), packet.size());
+            qint64 bytesWritten = m_pUdpSocket->writeDatagram(data, m_remoteAddress, m_remotePort);
+            
+            if (bytesWritten == -1) {
+                LogMessage(QString("发送设备列表请求失败: %1").arg(m_pUdpSocket->errorString()), "ERROR");
+                return;
+            } else {
+                LogMessage(QString("发送设备列表请求 -> %1:%2 [%3] (%4 bytes)")
+                          .arg(m_remoteAddress.toString())
+                          .arg(m_remotePort)
+                          .arg(ByteArrayToHexString(data))
+                          .arg(bytesWritten), "SEND");
+            }
+        }
 }
 
 void MainWindow::ProcessProtocolMessage(const std::vector<uint8_t> &data)

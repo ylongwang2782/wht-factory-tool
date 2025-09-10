@@ -5,3 +5,4 @@
 build/
 .cache/
 upgrade_log_*.txt
+external/qdarkstyle/udp_debug_*.log
